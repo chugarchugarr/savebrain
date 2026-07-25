@@ -11,6 +11,7 @@ class OroBudget:
     max_wall_seconds: int
     max_usd: float
     efforts: list[str]
+    escalate_effort: bool = True
     started_at: float = field(default_factory=time.time)
     steps: int = 0
     repairs: int = 0
@@ -29,7 +30,7 @@ class OroBudget:
 
     def verification_failed(self) -> None:
         self.repairs += 1
-        if self.effort_index < len(self.efforts) - 1:
+        if self.escalate_effort and self.effort_index < len(self.efforts) - 1:
             self.effort_index += 1
 
     def exhausted(self) -> tuple[bool, str | None]:
