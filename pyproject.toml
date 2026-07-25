@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tro-frontier"
-version = "0.1.0"
-description = "Frozen TRACE + REVAL + ORO coding-agent adapter for private benchmark evaluation"
+version = "0.2.0"
+description = "TRACE + REVAL + ORO routed agent and public benchmark adapters"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -19,9 +19,14 @@ dev = [
   "pytest>=8.0,<9",
   "ruff>=0.9,<1",
 ]
+harbor = [
+  "harbor>=0.16,<1",
+]
 
 [project.scripts]
 tro-frontier = "tro_frontier.cli:main"
+tro-swebench = "tro_frontier.benchmarks.swebench:main"
+tro-ablate = "tro_frontier.ablation:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
