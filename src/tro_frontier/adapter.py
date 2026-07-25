@@ -20,6 +20,7 @@ def run_task(
         repo=Path(task_payload["repo"]).expanduser().resolve(),
         check_commands=[str(item) for item in task_payload.get("check_commands", [])],
         allowed_paths=[str(item) for item in task_payload.get("allowed_paths", [])],
+        metadata=dict(task_payload.get("metadata", {})),
     )
     return AgentRunner(
         manifest=load_manifest(manifest_path),
