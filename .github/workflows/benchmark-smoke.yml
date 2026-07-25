@@ -38,7 +38,11 @@ jobs:
       - name: Install pinned official harness
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "git+https://github.com/SWE-bench/SWE-bench.git@${SWE_BENCH_COMMIT}"
+          git init /tmp/SWE-bench
+          git -C /tmp/SWE-bench remote add origin https://github.com/SWE-bench/SWE-bench.git
+          git -C /tmp/SWE-bench fetch --depth 1 origin "${SWE_BENCH_COMMIT}"
+          git -C /tmp/SWE-bench checkout --detach FETCH_HEAD
+          python -m pip install -e /tmp/SWE-bench
           python -c "import swebench; print(swebench.__version__)"
       - name: Run one official gold patch
         run: |

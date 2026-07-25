@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,65 @@ def extract_patch(repo: str | Path) -> str:
     return build_git_patch(repo)
 
 
+def checkout_instance(
+    instance: dict[str, Any],
+    *,
+    repo_dir: str | Path,
+    instance_output: str | Path,
+    task_output: str | Path,
+) -> dict[str, Any]:
+    repo_name = str(instance["repo"])
+    base_commit = str(instance["base_commit"])
+    checkout = Path(repo_dir).expanduser().resolve()
+    if checkout.exists():
+        raise ValueError(f"Checkout path already exists: {checkout}")
+
+    subprocess.run(
+        ["git", "clone", f"https://github.com/{repo_name}.git", str(checkout)],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "checkout", "--detach", base_commit],
+        cwd=checkout,
+        check=True,
+    )
+
+    public_instance = {
+        key: value
+        for key, value in instance.items()
+        if key not in {"patch", "test_patch", "hints_text"}
+    }
+    instance_path = Path(instance_output)
+    instance_path.parent.mkdir(parents=True, exist_ok=True)
+    instance_path.write_text(json.dumps(public_instance, indent=2, sort_keys=True) + "\n")
+
+    task = build_task_payload(public_instance, repo=checkout)
+    task_path = Path(task_output)
+    task_path.parent.mkdir(parents=True, exist_ok=True)
+    task_path.write_text(json.dumps(task, indent=2, sort_keys=True) + "\n")
+    return {
+        "instance_id": public_instance["instance_id"],
+        "repo": repo_name,
+        "base_commit": base_commit,
+        "checkout": str(checkout),
+        "instance_path": str(instance_path.resolve()),
+        "task_path": str(task_path.resolve()),
+    }
+
+
+def load_instance(dataset_name: str, instance_id: str) -> dict[str, Any]:
+    try:
+        from datasets import load_dataset
+    except ImportError as exc:
+        raise RuntimeError("Install the official SWE-bench harness before loading a dataset") from exc
+
+    dataset = load_dataset(dataset_name, split="test")
+    for instance in dataset:
+        if str(instance["instance_id"]) == instance_id:
+            return dict(instance)
+    raise ValueError(f"Instance {instance_id!r} not found in {dataset_name!r}")
+
+
 def export_prediction(
     *,
     instance_id: str,
@@ -68,6 +128,13 @@ def _parser() -> argparse.ArgumentParser:
     prepare.add_argument("--output", required=True)
     prepare.add_argument("--check", action="append", default=[])
 
+    checkout = subparsers.add_parser("checkout", help="Load and check out one official SWE-bench instance")
+    checkout.add_argument("--dataset", default="SWE-bench/SWE-bench_Verified")
+    checkout.add_argument("--instance-id", required=True)
+    checkout.add_argument("--repo-dir", required=True)
+    checkout.add_argument("--instance-output", required=True)
+    checkout.add_argument("--task-output", required=True)
+
     export = subparsers.add_parser("export", help="Export the current repository diff in sb-cli prediction format")
     export.add_argument("--instance-id", required=True)
     export.add_argument("--repo", required=True)
@@ -85,6 +152,17 @@ def main() -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
         print(target)
+        return
+
+    if args.command == "checkout":
+        instance = load_instance(args.dataset, args.instance_id)
+        result = checkout_instance(
+            instance,
+            repo_dir=args.repo_dir,
+            instance_output=args.instance_output,
+            task_output=args.task_output,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
         return
 
     patch = extract_patch(args.repo)

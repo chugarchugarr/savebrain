@@ -4,7 +4,12 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
-from tro_frontier.benchmarks.swebench import build_task_payload, export_prediction, extract_patch
+from tro_frontier.benchmarks.swebench import (
+    build_task_payload,
+    checkout_instance,
+    export_prediction,
+    extract_patch,
+)
 from tro_frontier.benchmarks.terminalbench import TraceRevalOroHarborAgent
 
 
@@ -34,6 +39,48 @@ def test_swebench_payload_and_prediction_contract(tmp_path: Path) -> None:
     prediction = json.loads(output.read_text())[0]
     assert set(prediction) == {"instance_id", "model_name_or_path", "model_patch"}
     assert "new_file.py" in prediction["model_patch"]
+
+
+def test_swebench_checkout_strips_grader_data(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo = tmp_path / "repo"
+    instance = {
+        "instance_id": "project__issue-1",
+        "problem_statement": "Fix the issue.",
+        "repo": "owner/project",
+        "base_commit": "abc123",
+        "version": "1.0",
+        "patch": "gold patch",
+        "test_patch": "hidden tests",
+        "hints_text": "solution hint",
+    }
+    commands: list[tuple[list[str], Path | None]] = []
+
+    def fake_run(command, *, cwd=None, check):
+        del check
+        commands.append((command, cwd))
+        if command[:2] == ["git", "clone"]:
+            repo.mkdir()
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = checkout_instance(
+        instance,
+        repo_dir=repo,
+        instance_output=tmp_path / "instance.json",
+        task_output=tmp_path / "task.json",
+    )
+
+    public_instance = json.loads((tmp_path / "instance.json").read_text())
+    assert {"patch", "test_patch", "hints_text"}.isdisjoint(public_instance)
+    assert json.loads((tmp_path / "task.json").read_text())["repo"] == str(repo)
+    assert result["base_commit"] == "abc123"
+    assert commands == [
+        (["git", "clone", "https://github.com/owner/project.git", str(repo)], None),
+        (["git", "checkout", "--detach", "abc123"], repo),
+    ]
 
 
 class _RecordingEnvironment:

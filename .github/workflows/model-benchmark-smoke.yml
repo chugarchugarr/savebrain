@@ -1,0 +1,184 @@
+name: model-benchmark-smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - frontiercode-v0.2
+    paths:
+      - ".github/workflows/model-benchmark-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-benchmark-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Model credential preflight
+    runs-on: ubuntu-latest
+    outputs:
+      key_available: ${{ steps.access.outputs.key_available }}
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Check benchmark access
+        id: access
+        run: |
+          mkdir -p benchmark-artifacts/preflight
+          if [[ -n "${OPENAI_API_KEY}" ]]; then
+            echo "key_available=true" >> "${GITHUB_OUTPUT}"
+            printf '%s\n' '{"openai_api_key":"available","model_jobs":"enabled"}' \
+              > benchmark-artifacts/preflight/model-access.json
+          else
+            echo "key_available=false" >> "${GITHUB_OUTPUT}"
+            printf '%s\n' '{"openai_api_key":"missing","model_jobs":"blocked"}' \
+              > benchmark-artifacts/preflight/model-access.json
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: model-benchmark-preflight-${{ github.run_id }}
+          path: benchmark-artifacts/preflight
+
+  swebench-model:
+    name: SWE-bench Verified model smoke
+    needs: preflight
+    if: needs.preflight.outputs.key_available == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL_LUNA: ${{ vars.OPENAI_MODEL_LUNA || 'gpt-5.6-luna' }}
+      OPENAI_MODEL_TERRA: ${{ vars.OPENAI_MODEL_TERRA || 'gpt-5.6-terra' }}
+      OPENAI_MODEL_SOL: ${{ vars.OPENAI_MODEL_SOL || 'gpt-5.6-sol' }}
+      SWE_BENCH_COMMIT: f7bbbb2ccdf479001d6467c9e34af59e44a840f9
+      SWE_BENCH_DATASET: SWE-bench/SWE-bench_Verified
+      SWE_BENCH_INSTANCE: sympy__sympy-20590
+      SWE_BENCH_RUN_ID: tro-model-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install agent and official grader
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          git init /tmp/SWE-bench
+          git -C /tmp/SWE-bench remote add origin https://github.com/SWE-bench/SWE-bench.git
+          git -C /tmp/SWE-bench fetch --depth 1 origin "${SWE_BENCH_COMMIT}"
+          git -C /tmp/SWE-bench checkout --detach FETCH_HEAD
+          python -m pip install -e /tmp/SWE-bench
+      - name: Prepare uncontaminated task checkout
+        run: |
+          mkdir -p benchmark-artifacts/swebench-model
+          tro-swebench checkout \
+            --dataset "${SWE_BENCH_DATASET}" \
+            --instance-id "${SWE_BENCH_INSTANCE}" \
+            --repo-dir /tmp/swebench-instance \
+            --instance-output benchmark-artifacts/swebench-model/instance.json \
+            --task-output /tmp/swebench-task.json \
+            2>&1 | tee benchmark-artifacts/swebench-model/prepare.log
+      - name: Run frozen TRACE REVAL ORO agent
+        run: |
+          tro-frontier /tmp/swebench-task.json \
+            --manifest frozen/trace-reval-oro-v0.2.json \
+            --output-dir benchmark-artifacts/swebench-model/runs \
+            2>&1 | tee benchmark-artifacts/swebench-model/run-result.json
+          tro-swebench export \
+            --instance-id "${SWE_BENCH_INSTANCE}" \
+            --repo /tmp/swebench-instance \
+            --model-name tro-frontier-v0.2-smoke \
+            --output benchmark-artifacts/swebench-model/prediction.json
+      - name: Run official SWE-bench grader
+        run: |
+          python -m swebench.harness.run_evaluation \
+            --dataset_name "${SWE_BENCH_DATASET}" \
+            --predictions_path benchmark-artifacts/swebench-model/prediction.json \
+            --max_workers 1 \
+            --instance_ids "${SWE_BENCH_INSTANCE}" \
+            --run_id "${SWE_BENCH_RUN_ID}" \
+            --cache_level none \
+            --clean true \
+            2>&1 | tee benchmark-artifacts/swebench-model/grader.log
+      - name: Record official score
+        run: |
+          python scripts/verify_benchmark_smoke.py swebench-score \
+            --report "tro-frontier-v0.2-smoke.${SWE_BENCH_RUN_ID}.json" \
+            --instance-id "${SWE_BENCH_INSTANCE}" \
+            --output benchmark-artifacts/swebench-model/score.json
+      - name: Capture grader evidence
+        if: always()
+        run: |
+          mkdir -p benchmark-artifacts/swebench-model
+          cp -R "logs/run_evaluation/${SWE_BENCH_RUN_ID}" \
+            benchmark-artifacts/swebench-model/grader-logs 2>/dev/null || true
+          cp "tro-frontier-v0.2-smoke.${SWE_BENCH_RUN_ID}.json" \
+            benchmark-artifacts/swebench-model/grader-report.json 2>/dev/null || true
+          df -h > benchmark-artifacts/swebench-model/disk.txt
+      - name: Upload SWE-bench model evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swebench-model-${{ github.run_id }}
+          if-no-files-found: warn
+          path: benchmark-artifacts/swebench-model
+
+  terminalbench-model:
+    name: Terminal-Bench 2.1 model smoke
+    needs: preflight
+    if: needs.preflight.outputs.key_available == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      HARBOR_TELEMETRY: "off"
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL_LUNA: ${{ vars.OPENAI_MODEL_LUNA || 'gpt-5.6-luna' }}
+      OPENAI_MODEL_TERRA: ${{ vars.OPENAI_MODEL_TERRA || 'gpt-5.6-terra' }}
+      OPENAI_MODEL_SOL: ${{ vars.OPENAI_MODEL_SOL || 'gpt-5.6-sol' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install agent and official harness
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[harbor]"
+      - name: Run one official task
+        run: |
+          mkdir -p benchmark-artifacts/terminalbench-model
+          harbor run \
+            -d terminal-bench/terminal-bench-2-1 \
+            -a tro_frontier.benchmarks.terminalbench:TraceRevalOroHarborAgent \
+            --agent-kwarg luna_model="${OPENAI_MODEL_LUNA}" \
+            --agent-kwarg terra_model="${OPENAI_MODEL_TERRA}" \
+            --agent-kwarg sol_model="${OPENAI_MODEL_SOL}" \
+            --ae OPENAI_API_KEY="${OPENAI_API_KEY}" \
+            -l 1 \
+            -n 1 \
+            -k 1 \
+            -y \
+            -o benchmark-artifacts/terminalbench-model/jobs \
+            2>&1 | tee benchmark-artifacts/terminalbench-model/harbor.log
+      - name: Record official score
+        run: |
+          python scripts/verify_benchmark_smoke.py terminalbench-score \
+            --jobs-dir benchmark-artifacts/terminalbench-model/jobs \
+            --output benchmark-artifacts/terminalbench-model/score.json
+      - name: Capture Docker state
+        if: always()
+        run: |
+          mkdir -p benchmark-artifacts/terminalbench-model
+          docker ps -a > benchmark-artifacts/terminalbench-model/docker-ps.txt
+          docker images > benchmark-artifacts/terminalbench-model/docker-images.txt
+          df -h > benchmark-artifacts/terminalbench-model/disk.txt
+      - name: Upload Terminal-Bench model evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminalbench-model-${{ github.run_id }}
+          if-no-files-found: warn
+          path: benchmark-artifacts/terminalbench-model
