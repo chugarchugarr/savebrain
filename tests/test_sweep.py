@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.run_structural_ablation import ScriptedSession
+from tro_frontier.structural import ScriptedSession
 from tro_frontier.sweep import build_effort_manifest, run_reasoning_sweep
 
 

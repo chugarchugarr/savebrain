@@ -1,0 +1,130 @@
+name: benchmark-harness-smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - frontiercode-v0.2
+    paths:
+      - ".github/workflows/benchmark-smoke.yml"
+      - "scripts/verify_benchmark_smoke.py"
+      - "src/tro_frontier/benchmark_smoke.py"
+      - "src/tro_frontier/benchmarks/**"
+      - "pyproject.toml"
+
+permissions:
+  contents: read
+
+jobs:
+  swebench-verified-oracle:
+    name: SWE-bench Verified official gold smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SWE_BENCH_COMMIT: f7bbbb2ccdf479001d6467c9e34af59e44a840f9
+      SWE_BENCH_DATASET: SWE-bench/SWE-bench_Verified
+      SWE_BENCH_INSTANCE: sympy__sympy-20590
+      SWE_BENCH_RUN_ID: tro-oracle-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Preflight
+        run: |
+          docker info
+          df -h
+          python --version
+      - name: Install pinned official harness
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "git+https://github.com/SWE-bench/SWE-bench.git@${SWE_BENCH_COMMIT}"
+          python -c "import swebench; print(swebench.__version__)"
+      - name: Run one official gold patch
+        run: |
+          mkdir -p benchmark-artifacts/swebench
+          python -m swebench.harness.run_evaluation \
+            --dataset_name "${SWE_BENCH_DATASET}" \
+            --predictions_path gold \
+            --max_workers 1 \
+            --instance_ids "${SWE_BENCH_INSTANCE}" \
+            --run_id "${SWE_BENCH_RUN_ID}" \
+            --cache_level none \
+            --clean true \
+            2>&1 | tee benchmark-artifacts/swebench/harness.log
+      - name: Enforce oracle result
+        run: |
+          python scripts/verify_benchmark_smoke.py swebench \
+            --report "gold.${SWE_BENCH_RUN_ID}.json" \
+            --instance-id "${SWE_BENCH_INSTANCE}" \
+            --output benchmark-artifacts/swebench/summary.json
+      - name: Capture Docker state
+        if: always()
+        run: |
+          mkdir -p benchmark-artifacts/swebench
+          docker ps -a > benchmark-artifacts/swebench/docker-ps.txt
+          docker images > benchmark-artifacts/swebench/docker-images.txt
+          df -h > benchmark-artifacts/swebench/disk.txt
+      - name: Upload SWE-bench evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swebench-verified-oracle-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            benchmark-artifacts/swebench
+            gold.${{ env.SWE_BENCH_RUN_ID }}.json
+            logs/run_evaluation/${{ env.SWE_BENCH_RUN_ID }}
+
+  terminalbench-oracle:
+    name: Terminal-Bench 2.1 official oracle smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      HARBOR_TELEMETRY: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Preflight
+        run: |
+          docker info
+          df -h
+          python --version
+      - name: Install pinned Harbor contract
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[harbor]"
+          harbor --version
+      - name: Run one official oracle task
+        run: |
+          mkdir -p benchmark-artifacts/terminalbench
+          harbor run \
+            -d terminal-bench/terminal-bench-2-1 \
+            -a oracle \
+            -l 1 \
+            -n 1 \
+            -k 1 \
+            -y \
+            -o benchmark-artifacts/terminalbench/jobs \
+            2>&1 | tee benchmark-artifacts/terminalbench/harbor.log
+      - name: Enforce oracle result
+        run: |
+          python scripts/verify_benchmark_smoke.py terminalbench \
+            --jobs-dir benchmark-artifacts/terminalbench/jobs \
+            --output benchmark-artifacts/terminalbench/summary.json
+      - name: Capture Docker state
+        if: always()
+        run: |
+          mkdir -p benchmark-artifacts/terminalbench
+          docker ps -a > benchmark-artifacts/terminalbench/docker-ps.txt
+          docker images > benchmark-artifacts/terminalbench/docker-images.txt
+          df -h > benchmark-artifacts/terminalbench/disk.txt
+      - name: Upload Terminal-Bench evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminalbench-2-1-oracle-${{ github.run_id }}
+          if-no-files-found: warn
+          path: benchmark-artifacts/terminalbench
