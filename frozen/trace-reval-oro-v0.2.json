@@ -1,0 +1,81 @@
+{
+  "name": "GPT-5.6 routed + TRACE + REVAL + ORO FrontierCode 1.1",
+  "version": "0.2.0",
+  "components": {
+    "trace": true,
+    "reval": true,
+    "oro": true
+  },
+  "model": {
+    "provider": "openai",
+    "model_env": "OPENAI_MODEL",
+    "default_model": "gpt-5.6-sol",
+    "reasoning_efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+    "route": [
+      {
+        "name": "luna",
+        "model_env": "OPENAI_MODEL_LUNA",
+        "default_model": "gpt-5.6-luna",
+        "start_repair": 0
+      },
+      {
+        "name": "terra",
+        "model_env": "OPENAI_MODEL_TERRA",
+        "default_model": "gpt-5.6-terra",
+        "start_repair": 1
+      },
+      {
+        "name": "sol",
+        "model_env": "OPENAI_MODEL_SOL",
+        "default_model": "gpt-5.6-sol",
+        "start_repair": 2
+      }
+    ]
+  },
+  "trace": {
+    "stages": ["target", "rip", "assemble", "contain", "exit"],
+    "require_order": true,
+    "writes_allowed_in": ["assemble", "contain"],
+    "completion_allowed_in": ["exit"]
+  },
+  "reval": {
+    "always_run": ["git diff --check"],
+    "require_all_checks": true,
+    "require_claim_evidence": true,
+    "zero_on_unresolved_verification_failure": true,
+    "allow_abstention": true
+  },
+  "oro": {
+    "max_steps": 80,
+    "max_repairs": 4,
+    "max_wall_seconds": 3600,
+    "max_usd": 0,
+    "escalate_effort_after_failed_verification": true,
+    "escalate_model_after_failed_verification": true,
+    "stop_on_verified_completion": true
+  },
+  "internet": {
+    "enabled": true,
+    "mode": "fair_use",
+    "require_lineage": true,
+    "zero_on_solution_source": true,
+    "contamination_hook_env": "TRO_CONTAMINATION_CHECK_CMD",
+    "permitted_purposes": [
+      "documentation",
+      "api_reference",
+      "error_search",
+      "package_metadata",
+      "background_concept"
+    ],
+    "blocked_commands": []
+  },
+  "logging": {
+    "record_prompts": true,
+    "record_tool_calls": true,
+    "record_command_output": true,
+    "hash_evidence": true,
+    "record_external_sources": true,
+    "record_cached_tokens": true,
+    "record_tool_costs": true
+  }
+}
