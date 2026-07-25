@@ -24,7 +24,13 @@ class RunLedger:
     started_at: float = field(default_factory=time.time)
     events: list[LedgerEvent] = field(default_factory=list)
     usage: dict[str, float] = field(
-        default_factory=lambda: {"input_tokens": 0, "output_tokens": 0, "usd": 0.0}
+        default_factory=lambda: {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "tool_calls": 0,
+            "usd": 0.0,
+        }
     )
 
     def add(self, kind: str, payload: dict[str, Any]) -> str:
@@ -34,9 +40,19 @@ class RunLedger:
         canonical = json.dumps(asdict(event), sort_keys=True, separators=(",", ":"))
         return f"ev-{sequence}-{hashlib.sha256(canonical.encode()).hexdigest()[:12]}"
 
-    def add_usage(self, input_tokens: int, output_tokens: int, usd: float) -> None:
+    def add_usage(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        usd: float,
+        *,
+        cached_input_tokens: int = 0,
+        tool_calls: int = 0,
+    ) -> None:
         self.usage["input_tokens"] += input_tokens
+        self.usage["cached_input_tokens"] += cached_input_tokens
         self.usage["output_tokens"] += output_tokens
+        self.usage["tool_calls"] += tool_calls
         self.usage["usd"] += usd
 
     def evidence_ids(self) -> set[str]:
