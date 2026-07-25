@@ -58,7 +58,7 @@ jobs:
             2>&1 | tee benchmark-artifacts/swebench/harness.log
       - name: Enforce oracle result
         run: |
-          python scripts/verify_benchmark_smoke.py swebench \
+          PYTHONPATH=src python scripts/verify_benchmark_smoke.py swebench \
             --report "gold.${SWE_BENCH_RUN_ID}.json" \
             --instance-id "${SWE_BENCH_INSTANCE}" \
             --output benchmark-artifacts/swebench/summary.json
