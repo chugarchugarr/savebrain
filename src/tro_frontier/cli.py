@@ -13,7 +13,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("task", help="Path to a task JSON file")
     parser.add_argument(
         "--manifest",
-        default=str(Path(__file__).resolve().parents[2] / "frozen" / "trace-reval-oro-v0.1.json"),
+        default=str(Path(__file__).resolve().parents[2] / "frozen" / "trace-reval-oro-v0.2.json"),
         help="Path to the frozen policy manifest",
     )
     parser.add_argument("--output-dir", default="runs", help="Directory for immutable run ledgers")
