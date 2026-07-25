@@ -11,6 +11,7 @@ class ModelTurn:
     response_id: str
     model: str
     tool_calls: list[dict[str, Any]]
+    external_sources: list[dict[str, str]]
     text: str
     input_tokens: int
     cached_input_tokens: int
@@ -48,8 +49,13 @@ class OpenAIReasoningSession:
         self.previous_response_id = response.id
 
         tool_calls: list[dict[str, Any]] = []
+        external_sources: list[dict[str, str]] = []
+        tool_call_count = 0
         for item in response.output:
-            if getattr(item, "type", None) == "function_call":
+            item_type = str(getattr(item, "type", ""))
+            if item_type.endswith("_call"):
+                tool_call_count += 1
+            if item_type == "function_call":
                 raw_arguments = getattr(item, "arguments", "{}")
                 try:
                     arguments = json.loads(raw_arguments)
@@ -62,6 +68,17 @@ class OpenAIReasoningSession:
                         "arguments": arguments,
                     }
                 )
+            for content in getattr(item, "content", []) or []:
+                for annotation in getattr(content, "annotations", []) or []:
+                    if getattr(annotation, "type", None) == "url_citation":
+                        url = str(getattr(annotation, "url", "")).strip()
+                        if url:
+                            external_sources.append(
+                                {
+                                    "url": url,
+                                    "title": str(getattr(annotation, "title", "")),
+                                }
+                            )
 
         usage = getattr(response, "usage", None)
         input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
@@ -69,7 +86,6 @@ class OpenAIReasoningSession:
         input_details = getattr(usage, "input_tokens_details", None)
         cached_input_tokens = int(getattr(input_details, "cached_tokens", 0) or 0)
         uncached_input_tokens = max(input_tokens - cached_input_tokens, 0)
-        tool_call_count = len(tool_calls)
         usd = (
             uncached_input_tokens * self.input_rate
             + cached_input_tokens * self.cached_input_rate
@@ -80,6 +96,7 @@ class OpenAIReasoningSession:
             response_id=response.id,
             model=self.model,
             tool_calls=tool_calls,
+            external_sources=external_sources,
             text=getattr(response, "output_text", "") or "",
             input_tokens=input_tokens,
             cached_input_tokens=cached_input_tokens,
