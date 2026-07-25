@@ -7,7 +7,7 @@ name = "tro-frontier"
 version = "0.2.0"
 description = "TRACE + REVAL + ORO routed agent and public benchmark adapters"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Joseph Lerma" }]
 dependencies = [
@@ -16,17 +16,19 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "harbor>=0.20,<0.21",
   "pytest>=8.0,<9",
   "ruff>=0.9,<1",
 ]
 harbor = [
-  "harbor>=0.16,<1",
+  "harbor>=0.20,<0.21",
 ]
 
 [project.scripts]
 tro-frontier = "tro_frontier.cli:main"
 tro-swebench = "tro_frontier.benchmarks.swebench:main"
 tro-ablate = "tro_frontier.ablation:main"
+tro-sweep = "tro_frontier.sweep:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

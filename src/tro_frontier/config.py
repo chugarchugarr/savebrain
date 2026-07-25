@@ -70,3 +70,22 @@ def _validate_manifest(data: dict[str, Any]) -> None:
         raise ValueError("internet.mode must be closed or fair_use")
     if mode == "fair_use" and not internet.get("require_lineage"):
         raise ValueError("Fair-use internet requires source lineage")
+
+    pricing = data.get("pricing")
+    if pricing is not None:
+        models = pricing.get("models")
+        if not isinstance(models, dict) or not models:
+            raise ValueError("pricing.models must contain at least one model")
+        if int(pricing.get("long_context_input_threshold", 0)) <= 0:
+            raise ValueError("pricing.long_context_input_threshold must be positive")
+        for model, rates in models.items():
+            if not isinstance(rates, dict):
+                raise ValueError(f"Pricing for {model} must be an object")
+            for key in (
+                "input_usd_per_million",
+                "cached_input_usd_per_million",
+                "cache_write_usd_per_million",
+                "output_usd_per_million",
+            ):
+                if float(rates.get(key, -1)) < 0:
+                    raise ValueError(f"Pricing for {model} is missing {key}")

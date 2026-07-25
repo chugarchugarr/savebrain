@@ -43,7 +43,20 @@ class TraceRevalOroHarborAgent(BaseAgent):
 
     async def setup(self, environment: BaseEnvironment) -> None:
         package_root = Path(__file__).resolve().parents[3]
-        await environment.upload_dir(package_root, self.remote_package)
+        mkdir = await environment.exec(
+            command=(
+                f"mkdir -p {shlex.quote(self.remote_package)} "
+                f"{shlex.quote(f'{self.remote_package}/src')} "
+                f"{shlex.quote(f'{self.remote_package}/frozen')}"
+            ),
+            timeout_sec=30,
+        )
+        if mkdir.return_code != 0:
+            raise RuntimeError(mkdir.stderr or mkdir.stdout or "Failed to prepare tro-frontier package")
+        await environment.upload_dir(package_root / "src", f"{self.remote_package}/src")
+        await environment.upload_dir(package_root / "frozen", f"{self.remote_package}/frozen")
+        await environment.upload_file(package_root / "pyproject.toml", f"{self.remote_package}/pyproject.toml")
+        await environment.upload_file(package_root / "README.md", f"{self.remote_package}/README.md")
         result = await environment.exec(
             command=f"python -m pip install -e {shlex.quote(self.remote_package)}",
             timeout_sec=300,
@@ -98,6 +111,8 @@ class TraceRevalOroHarborAgent(BaseAgent):
             "run_id": payload.get("run_id"),
             "manifest_sha256": payload.get("manifest_sha256"),
             "model_route": payload.get("model_route", []),
+            "cache_write_tokens": int(usage.get("cache_write_tokens", 0)),
+            "web_search_calls": int(usage.get("web_search_calls", 0)),
             "patch_path": payload.get("patch_path"),
             "lineage_path": payload.get("lineage_path"),
         }

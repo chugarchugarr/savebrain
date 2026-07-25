@@ -66,7 +66,7 @@ Create `task.json`:
 Run one rollout:
 
 ```bash
-tro-frontier task.json --output-dir runs
+tro-frontier task.json --output-dir /tmp/tro-runs
 ```
 
 The command returns either:
@@ -104,3 +104,93 @@ This package is ready to hand to the FrontierCode benchmark owner. It cannot sub
 - exact model API identifier and credentials;
 - private graders and score aggregation;
 - authoritative rollout-cost accounting.
+
+## Separate FrontierCode 1.1 / public-benchmark track
+
+Development after the v0.1 freeze lives on the separate `frontiercode-v0.2` branch and uses
+`frozen/trace-reval-oro-v0.2.json`. It does not modify the v0.1 evaluation object.
+
+v0.2 adds:
+
+- GPT-5.6 Luna → Terra → Sol routing after successive failed REVAL checks;
+- all current reasoning-effort settings: `none`, `low`, `medium`, `high`, `xhigh`, and `max`;
+- fair-use web search with complete source lineage and an external contamination-check hook;
+- current token, cache-read, cache-write, long-context, and web-search cost accounting;
+- SWE-bench Verified task preparation and prediction export;
+- a Harbor 0.20 custom-agent adapter for Terminal-Bench 2.1;
+- five-rollout reasoning sweeps and component ablation.
+
+This is an executable compatibility track, not a benchmark-score claim. FrontierCode scores still require
+Cognition's private tasks, container contract, grader, and aggregation.
+
+### SWE-bench Verified
+
+Convert one official instance record to the runner contract:
+
+```bash
+tro-swebench prepare instance.json \
+  --repo /absolute/path/to/clean-instance-checkout \
+  --check "python -m pytest -q" \
+  --output /tmp/tro-swe-task.json
+```
+
+Run the agent, then export the complete tracked-and-untracked patch in the official prediction shape:
+
+```bash
+tro-frontier /tmp/tro-swe-task.json \
+  --manifest frozen/trace-reval-oro-v0.2.json \
+  --output-dir /tmp/tro-swe-run
+
+tro-swebench export \
+  --instance-id owner__project-123 \
+  --repo /absolute/path/to/clean-instance-checkout \
+  --model-name "GPT-5.6 routed + TRACE + REVAL + ORO v0.2" \
+  --output /tmp/tro-swe-prediction.json
+```
+
+The exported object contains exactly `instance_id`, `model_name_or_path`, and `model_patch`.
+
+### Terminal-Bench 2.1
+
+Install the Harbor adapter and run the official dataset with five attempts:
+
+```bash
+pip install -e ".[harbor]"
+
+harbor run \
+  -d terminal-bench/terminal-bench-2-1 \
+  -a tro_frontier.benchmarks.terminalbench:TraceRevalOroHarborAgent \
+  -k 5 \
+  --ae OPENAI_API_KEY="$OPENAI_API_KEY"
+```
+
+The adapter uploads only `src`, `frozen`, `pyproject.toml`, and `README.md` into each task environment.
+It returns token/cost metadata and downloads the run ledger, full patch, and source-lineage artifacts.
+
+### Five-rollout effort sweep
+
+The sweep resets the task repository between independent runs, so use an isolated benchmark checkout and
+put results outside that checkout:
+
+```bash
+tro-sweep /tmp/tro-task.json \
+  --manifest frozen/trace-reval-oro-v0.2.json \
+  --repeats 5 \
+  --output-dir /tmp/tro-reasoning-sweep \
+  --allow-destructive-reset
+```
+
+To run only selected budgets, repeat `--effort`, for example `--effort low --effort high`.
+
+### Component ablation
+
+The deterministic structural ablation proves controller composition without claiming model quality:
+
+```bash
+python scripts/run_structural_ablation.py \
+  --manifest frozen/trace-reval-oro-v0.2.json \
+  --output-dir /tmp/tro-structural-ablation
+```
+
+Public SWE-bench Verified and Terminal-Bench 2.1 scores require their full datasets and graders. No public or
+private score should be reported until those runs complete.

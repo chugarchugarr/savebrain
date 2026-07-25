@@ -100,9 +100,47 @@ class Workspace:
                 timed_out=True,
             )
 
+    def patch(self) -> str:
+        return build_git_patch(self.root)
+
     def _reject_network_command(self, command: str) -> None:
         normalized = re.sub(r"\s+", " ", command.strip().lower())
         for blocked in self.blocked_commands:
             pattern = rf"(^|[;&|()\s]){re.escape(blocked)}($|[;&|()\s])"
             if re.search(pattern, normalized):
                 raise PermissionError(f"Network-bearing command blocked by frozen policy: {blocked}")
+
+
+def build_git_patch(root: str | Path) -> str:
+    """Return a binary-safe patch for tracked changes and untracked files."""
+    repo = Path(root).expanduser().resolve()
+    tracked = _git(repo, ["diff", "--binary"])
+    untracked = _git(repo, ["ls-files", "--others", "--exclude-standard", "-z"])
+    parts = [tracked.stdout]
+    for raw_path in untracked.stdout.split("\0"):
+        if not raw_path:
+            continue
+        proc = subprocess.run(
+            ["git", "diff", "--binary", "--no-index", "--", "/dev/null", raw_path],
+            cwd=repo,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if proc.returncode not in {0, 1}:
+            raise RuntimeError(proc.stderr or f"git diff failed for untracked file {raw_path}")
+        parts.append(proc.stdout)
+    return "".join(parts)
+
+
+def _git(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+    proc = subprocess.run(
+        ["git", *args],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr or f"git {' '.join(args)} failed")
+    return proc

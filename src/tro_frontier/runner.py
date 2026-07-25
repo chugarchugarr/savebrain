@@ -9,7 +9,7 @@ from typing import Any
 
 from .config import FrozenManifest
 from .ledger import RunLedger
-from .lineage import SourceLineage
+from .lineage import SourceLineage, infer_command_sources
 from .model import OpenAIReasoningSession
 from .oro import OroBudget
 from .reval import RevalVerifier
@@ -52,7 +52,13 @@ class AgentRunner:
     ) -> None:
         self.manifest = manifest
         self.task = task
-        self.output_dir = Path(output_dir)
+        self.output_dir = Path(output_dir).expanduser().resolve()
+        try:
+            self.output_dir.relative_to(task.repo.resolve())
+        except ValueError:
+            pass
+        else:
+            raise ValueError("Run output must be outside the task repository so artifacts cannot enter the patch")
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.components = manifest.components
         run_id = f"{task.task_id}-{uuid.uuid4().hex[:12]}"
@@ -81,7 +87,15 @@ class AgentRunner:
         if not self.components["oro"]:
             model_config.pop("route", None)
         self.router = ModelRouter.from_manifest(model_config)
-        self.session_factory = session_factory or OpenAIReasoningSession
+        pricing = dict(manifest.data.get("pricing", {}))
+        if session_factory is None:
+            self.session_factory = lambda model, instructions: OpenAIReasoningSession(
+                model,
+                instructions,
+                pricing=pricing,
+            )
+        else:
+            self.session_factory = session_factory
         self.session: Any | None = None
         self.active_model: str | None = None
         self.active_tier: str | None = None
@@ -143,14 +157,16 @@ class AgentRunner:
                 turn.output_tokens,
                 turn.usd,
                 cached_input_tokens=turn.cached_input_tokens,
+                cache_write_tokens=turn.cache_write_tokens,
                 tool_calls=turn.tool_call_count,
+                web_search_calls=turn.web_search_calls,
             )
             self.budget.record_usage(turn.usd)
             for source in turn.external_sources:
                 self._record_source(
                     url=source["url"],
                     purpose="provider_web_search",
-                    source_type="web",
+                    source_type=source.get("source_type", "web"),
                     solution_bearing=False,
                     notes=source.get("title", ""),
                 )
@@ -166,8 +182,12 @@ class AgentRunner:
                     "external_sources": turn.external_sources,
                     "input_tokens": turn.input_tokens,
                     "cached_input_tokens": turn.cached_input_tokens,
+                    "cache_write_tokens": turn.cache_write_tokens,
                     "output_tokens": turn.output_tokens,
                     "tool_call_count": turn.tool_call_count,
+                    "web_search_calls": turn.web_search_calls,
+                    "long_context": turn.long_context,
+                    "pricing": turn.pricing,
                     "usd": turn.usd,
                 },
             )
@@ -247,8 +267,7 @@ class AgentRunner:
         lineage_path = self.output_dir / f"{self.ledger.run_id}.sources.json"
         self.source_lineage.save(lineage_path)
         patch_path = self.output_dir / f"{self.ledger.run_id}.patch"
-        patch_result = self.workspace.run("git diff --binary")
-        patch_path.write_text(patch_result.stdout)
+        patch_path.write_text(self.workspace.patch())
 
         final.update(
             {
@@ -301,6 +320,14 @@ class AgentRunner:
             if name == "run_command":
                 command = str(args["command"])
                 timeout = int(args.get("timeout", 300))
+                for source in infer_command_sources(command, self.task.repo):
+                    self._record_source(
+                        url=source.url,
+                        purpose=source.purpose,
+                        source_type=source.source_type,
+                        solution_bearing=source.solution_bearing,
+                        notes=source.notes,
+                    )
                 result = self.workspace.run(command, timeout=timeout)
                 payload = result.to_dict()
                 evidence_id = self._record_evidence("command", payload)

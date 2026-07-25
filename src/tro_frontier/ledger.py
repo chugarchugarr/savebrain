@@ -27,8 +27,10 @@ class RunLedger:
         default_factory=lambda: {
             "input_tokens": 0,
             "cached_input_tokens": 0,
+            "cache_write_tokens": 0,
             "output_tokens": 0,
             "tool_calls": 0,
+            "web_search_calls": 0,
             "usd": 0.0,
         }
     )
@@ -47,12 +49,16 @@ class RunLedger:
         usd: float,
         *,
         cached_input_tokens: int = 0,
+        cache_write_tokens: int = 0,
         tool_calls: int = 0,
+        web_search_calls: int = 0,
     ) -> None:
         self.usage["input_tokens"] += input_tokens
         self.usage["cached_input_tokens"] += cached_input_tokens
+        self.usage["cache_write_tokens"] += cache_write_tokens
         self.usage["output_tokens"] += output_tokens
         self.usage["tool_calls"] += tool_calls
+        self.usage["web_search_calls"] += web_search_calls
         self.usage["usd"] += usd
 
     def evidence_ids(self) -> set[str]:

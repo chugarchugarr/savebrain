@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
+
+from ..sandbox import build_git_patch
 
 
 def build_task_payload(
@@ -34,17 +35,7 @@ def build_task_payload(
 
 
 def extract_patch(repo: str | Path) -> str:
-    root = Path(repo).expanduser().resolve()
-    proc = subprocess.run(
-        ["git", "diff", "--binary"],
-        cwd=root,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr or "git diff failed")
-    return proc.stdout
+    return build_git_patch(repo)
 
 
 def export_prediction(
