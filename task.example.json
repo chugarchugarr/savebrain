@@ -1,9 +1,0 @@
-{
-  "task_id": "frontiercode-private-task-id",
-  "prompt": "Implement the benchmark task exactly as provided.",
-  "repo": "/workspace/repository",
-  "check_commands": [
-    "python -m pytest -q"
-  ],
-  "allowed_paths": []
-}
